@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Manual RapidIdentity WAR Upgrade Using Updated Appliance</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 1.5rem;
+      line-height: 1.4;
+    }
+    h1, h2, h3 {
+      margin-top: 1.5rem;
+    }
+    code {
+      font-family: "Fira Code", Menlo, Consolas, monospace;
+      font-size: 0.9rem;
+      background: #f4f4f4;
+      padding: 0.15rem 0.3rem;
+      border-radius: 3px;
+    }
+    pre {
+      background: #f4f4f4;
+      padding: 0.75rem;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 0.9rem;
+    }
+    .callout {
+      border-left: 4px solid #c0392b;
+      background: #fdecea;
+      padding: 0.75rem 1rem;
+      margin: 1rem 0;
+    }
+    .section {
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 1rem;
+      margin-top: 1rem;
+    }
+    .form-section {
+      border: 1px solid #1e88e5;
+      background: #f0f7ff;
+      border-radius: 6px;
+      padding: 1rem;
+      margin-top: 2rem;
+    }
+    label {
+      display: block;
+      margin-top: 0.4rem;
+      font-size: 0.9rem;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 0.35rem;
+      margin-top: 0.15rem;
+      box-sizing: border-box;
+      font-family: inherit;
+      font-size: 0.9rem;
+    }
+    button {
+      margin-top: 0.75rem;
+      padding: 0.4rem 0.9rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    textarea {
+      width: 100%;
+      height: 260px;
+      margin-top: 0.75rem;
+      font-family: "Fira Code", Menlo, Consolas, monospace;
+      font-size: 0.9rem;
+      box-sizing: border-box;
+    }
+    .small {
+      font-size: 0.85rem;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Manual RapidIdentity WAR Upgrade Using an Updated Appliance</h1>
+
+<div class="callout">
+  <strong>Warning</strong><br>
+  Use this procedure only if you understand the risks and you already have at least one on prem appliance that has successfully taken the update. Always snapshot first and use a maintenance window.
+</div>
+
+<p>
+This document explains how to manually copy <code>rapididentity.war</code> from an upgraded on prem appliance to appliances that failed the upgrade, using SSH and SFTP.
+</p>
+
+<div class="section">
+  <h2>Overview</h2>
+  <ol>
+    <li>Take a snapshot of every appliance.</li>
+    <li>On an upgraded appliance, enable SFTP and copy <code>/var/opt/idauto/rapididentity.war</code> to <code>/var/sftp/files/rapididentity.war</code>.</li>
+    <li>From your workstation, SFTP to the upgraded appliance and download <code>rapididentity.war</code>.</li>
+    <li>On each appliance that needs the upgrade:
+      <ol>
+        <li>Stop the RapidIdentity service.</li>
+        <li>Enable SFTP.</li>
+        <li>Back up the existing WAR file.</li>
+        <li>Upload the new WAR file.</li>
+        <li>Set owner and permissions to match your known good appliance.</li>
+      </ol>
+    </li>
+    <li>Start the RapidIdentity service on all nodes.</li>
+    <li>Watch logs and the portal configuration page to confirm all appliances rejoin the cluster and report the correct version.</li>
+  </ol>
+</div>
+
+<div class="section">
+  <h2>Step 0: Prerequisites</h2>
+  <ul>
+    <li>Access to the hypervisor or VM platform to create snapshots.</li>
+    <li>SSH access to each appliance as <code>config</code>.</li>
+    <li>Ability to enter tech mode from the config menu.</li>
+    <li>Network path open from your workstation to each appliance on SSH and SFTP.</li>
+  </ul>
+</div>
+
+<div class="section">
+  <h2>Step 1: Snapshot all appliances</h2>
+  <p>
+  In your hypervisor or VM platform, create a snapshot of each appliance in the cluster (both the upgraded appliances and the ones that failed to upgrade). Use a clear name such as:
+  </p>
+  <pre>Before-manual-war-upgrade-YYYYMMDD</pre>
+  <p>
+  Do not proceed until you have valid snapshots.
+  </p>
+</div>
+
+<div class="section">
+  <h2>Step 2: Prepare an upgraded appliance (source)</h2>
+
+  <h3>2.1 SSH as config</h3>
+  <pre>ssh config@UPGRADED_APPLIANCE_IP</pre>
+
+  <h3>2.2 Set the SFTP password</h3>
+  <p>
+    From the config menu on the appliance:
+  </p>
+  <ol>
+    <li>Go to <strong>Security</strong>.</li>
+    <li>Select <strong>Change SFTP password</strong>.</li>
+    <li>Set a strong temporary SFTP password for the user <code>sftp</code>.</li>
+  </ol>
+
+  <h3>2.3 Enter tech mode and copy the WAR file into SFTP directory</h3>
+  <p>
+    From the config menu, enter tech mode, then run:
+  </p>
+  <pre>cp /var/opt/idauto/rapididentity.war /var/sftp/files/rapididentity.war</pre>
+</div>
+
+<div class="section">
+  <h2>Step 3: Download the WAR file to your workstation</h2>
+
+  <h3>3.1 SFTP to the upgraded appliance</h3>
+  <p>From a terminal on your workstation:</p>
+  <pre>sftp sftp@UPGRADED_APPLIANCE_IP</pre>
+
+  <p>In the SFTP session:</p>
+  <pre>
+cd files
+get rapididentity.war
+bye
+  </pre>
+
+  <p>
+    You should now have <code>rapididentity.war</code> in your local working directory (for example, on your workstation desktop or a working folder).
+  </p>
+</div>
+
+<div class="section">
+  <h2>Step 4: Prepare each appliance that needs the upgrade</h2>
+  <p>
+    Repeat this entire step for every appliance that failed the upgrade.
+  </p>
+
+  <h3>4.1 Stop the RapidIdentity service</h3>
+  <p>
+    SSH to the appliance as <code>config</code>, then use the appropriate command for your environment. Two common examples are:
+  </p>
+  <pre>
+systemctl stop rapididentity
+  </pre>
+  <p class="small">
+    or
+  </p>
+  <pre>
+service rapididentity stop
+  </pre>
+  <p class="small">
+    Replace <code>rapididentity</code> with the actual service name used on your appliance if it is different.
+  </p>
+
+  <h3>4.2 Set the SFTP password on the target appliance</h3>
+  <ol>
+    <li>From the config menu, go to <strong>Security</strong>.</li>
+    <li>Select <strong>Change SFTP password</strong>.</li>
+    <li>Set a strong temporary password for <code>sftp</code>.</li>
+  </ol>
+
+  <h3>4.3 Enter tech mode and back up the existing WAR file</h3>
+  <p>From tech mode on the appliance:</p>
+  <pre>
+cd /var/opt/idauto
+mv rapididentity.war.last rapididentity.war.old
+mv rapididentity.war rapididentity.war.last
+  </pre>
+  <p>
+    After this:
+  </p>
+  <ul>
+    <li><code>rapididentity.war.old</code> is your oldest backup.</li>
+    <li><code>rapididentity.war.last</code> is your previous active version.</li>
+  </ul>
+</div>
+
+<div class="section">
+  <h2>Step 5: Upload the new WAR file to the target appliance</h2>
+
+  <h3>5.1 SFTP from your workstation to the target appliance</h3>
+  <p>From your workstation terminal (in the directory where you downloaded <code>rapididentity.war</code>):</p>
+  <pre>sftp sftp@TARGET_APPLIANCE_IP</pre>
+
+  <p>In the SFTP session:</p>
+  <pre>
+cd files
+put rapididentity.war
+bye
+  </pre>
+
+  <h3>5.2 Move the uploaded file into place on the appliance</h3>
+  <p>Back in the tech mode shell on the target appliance:</p>
+  <pre>
+cd /var/opt/idauto
+mv /var/sftp/files/rapididentity.war /var/opt/idauto/rapididentity.war
+  </pre>
+
+  <h3>5.3 Set ownership and permissions</h3>
+  <p>
+    In your lab, the permissions look like this:
+  </p>
+  <pre>
+[root@localhost idauto]# ls -l rapididentity.war
+-r-xr-x---. 1 idauto idauto 193031513 Oct 29 14:40 rapididentity.war
+  </pre>
+
+  <p>
+    To match that on the target appliance:
+  </p>
+  <pre>
+cd /var/opt/idauto
+chown idauto:idauto rapididentity.war
+chmod 550 rapididentity.war
+ls -l rapididentity.war
+  </pre>
+
+  <p>
+    Confirm the owner, group, and permissions match your known good appliance. If your production permissions differ from the lab example, adjust to match production.
+  </p>
+
+  <p>
+    Repeat Step 4 and Step 5 for every appliance that needs the upgrade.
+  </p>
+</div>
+
+<div class="section">
+  <h2>Step 6: Start services and verify the cluster</h2>
+
+  <h3>6.1 Start the RapidIdentity service on all appliances</h3>
+  <p>On each appliance, from config or tech mode run the appropriate command, such as:</p>
+  <pre>
+systemctl start rapididentity
+  </pre>
+  <p class="small">
+    or
+  </p>
+  <pre>
+service rapididentity start
+  </pre>
+
+  <h3>6.2 Watch logs for cluster join and license messages</h3>
+  <p>
+    On each appliance, tail the application log and watch for messages indicating the node is joining the cluster and any license related messages. Example:
+  </p>
+  <pre>
+tail -f /var/log/idauto/rapididentity.log
+  </pre>
+  <p class="small">
+    Adjust the log path to match your environment.
+  </p>
+
+  <h3>6.3 Verify in the portal</h3>
+  <ol>
+    <li>Log in to the RapidIdentity portal.</li>
+    <li>Go to <strong>Configuration</strong> and confirm that all appliances show as part of the cluster.</li>
+    <li>Verify that the version on the previously failing appliances matches the version on the appliances that took the update originally.</li>
+  </ol>
+</div>
+
+<div class="form-section">
+  <h2>Optional: Generate SSH and SFTP commands</h2>
+  <p class="small">
+    Enter the IP addresses for up to three upgraded appliances and three appliances that need the upgrade. Then click "Generate commands" to get a set of SSH and SFTP commands you can copy.
+  </p>
+
+  <h3>Upgraded appliances (source)</h3>
+  <label for="src1">Source appliance 1 IP</label>
+  <input type="text" id="src1" placeholder="e.g. 192.168.254.10">
+
+  <label for="src2">Source appliance 2 IP</label>
+  <input type="text" id="src2" placeholder="optional">
+
+  <label for="src3">Source appliance 3 IP</label>
+  <input type="text" id="src3" placeholder="optional">
+
+  <h3>Appliances needing upgrade (target)</h3>
+  <label for="dst1">Target appliance 1 IP</label>
+  <input type="text" id="dst1" placeholder="e.g. 192.168.254.20">
+
+  <label for="dst2">Target appliance 2 IP</label>
+  <input type="text" id="dst2" placeholder="optional">
+
+  <label for="dst3">Target appliance 3 IP</label>
+  <input type="text" id="dst3" placeholder="optional">
+
+  <button type="button" onclick="generateCommands()">Generate commands</button>
+  <button type="button" onclick="copyCommands()">Copy all</button>
+
+  <textarea id="commandOutput" placeholder="Generated commands will appear here..."></textarea>
+
+  <p class="small">
+    Note: These commands assume SSH username <code>config</code> and SFTP username <code>sftp</code>. Adjust usernames if your environment is different.
+  </p>
+</div>
+
+<script>
+  function generateCommands() {
+    var srcIps = [
+      document.getElementById("src1").value.trim(),
+      document.getElementById("src2").value.trim(),
+      document.getElementById("src3").value.trim()
+    ];
+    var dstIps = [
+      document.getElementById("dst1").value.trim(),
+      document.getElementById("dst2").value.trim(),
+      document.getElementById("dst3").value.trim()
+    ];
+
+    var lines = [];
+    lines.push("=== Upgraded appliances (source) ===");
+    for (var i = 0; i < srcIps.length; i++) {
+      if (!srcIps[i]) continue;
+      lines.push("");
+      lines.push("Source appliance " + (i + 1) + " (" + srcIps[i] + ")");
+      lines.push("ssh config@" + srcIps[i]);
+      lines.push("sftp sftp@" + srcIps[i]);
+    }
+
+    lines.push("");
+    lines.push("=== Appliances needing upgrade (target) ===");
+    for (var j = 0; j < dstIps.length; j++) {
+      if (!dstIps[j]) continue;
+      lines.push("");
+      lines.push("Target appliance " + (j + 1) + " (" + dstIps[j] + ")");
+      lines.push("ssh config@" + dstIps[j]);
+      lines.push("sftp sftp@" + dstIps[j]);
+    }
+
+    document.getElementById("commandOutput").value = lines.join("\n");
+  }
+
+  function copyCommands() {
+    var textArea = document.getElementById("commandOutput");
+    textArea.select();
+    textArea.setSelectionRange(0, 99999);
+    try {
+      document.execCommand("copy");
+    } catch (e) {
+      navigator.clipboard.writeText(textArea.value);
+    }
+  }
+</script>
+
+</body>
+</html>
