@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Manual RapidIdentity WAR Upgrade Using Updated Appliance</title>
+  <title>Manual RI WAR Upgrade Using Updated Appliance</title>
   <style>
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -15,7 +15,7 @@
       margin-top: 1.5rem;
     }
     code {
-      font-family: "Fira Code", Menlo, Consolas, monospace;
+      font-family: Menlo, Consolas, monospace;
       font-size: 0.9rem;
       background: #f4f4f4;
       padding: 0.15rem 0.3rem;
@@ -27,12 +27,6 @@
       border-radius: 4px;
       overflow-x: auto;
       font-size: 0.9rem;
-    }
-    .callout {
-      border-left: 4px solid #c0392b;
-      background: #fdecea;
-      padding: 0.75rem 1rem;
-      margin: 1rem 0;
     }
     .section {
       border: 1px solid #ddd;
@@ -70,7 +64,7 @@
       width: 100%;
       height: 260px;
       margin-top: 0.75rem;
-      font-family: "Fira Code", Menlo, Consolas, monospace;
+      font-family: Menlo, Consolas, monospace;
       font-size: 0.9rem;
       box-sizing: border-box;
     }
@@ -82,236 +76,205 @@
 </head>
 <body>
 
-<h1>Manual RapidIdentity WAR Upgrade Using an Updated Appliance</h1>
-
-<div class="callout">
-  <strong>Warning</strong><br>
-  Use this procedure only if you understand the risks and you already have at least one on prem appliance that has successfully taken the update. Always snapshot first and use a maintenance window.
-</div>
+<h1>Manual RI WAR Upgrade Using an Updated Appliance</h1>
 
 <p>
-This document explains how to manually copy <code>rapididentity.war</code> from an upgraded on prem appliance to appliances that failed the upgrade, using SSH and SFTP.
+This guide is for RI techs who need to manually replace <code>rapididentity.war</code> on on prem appliances using an appliance that already took the update.
 </p>
 
 <div class="section">
-  <h2>Overview</h2>
+  <h2>High level flow</h2>
   <ol>
-    <li>Take a snapshot of every appliance.</li>
-    <li>On an upgraded appliance, enable SFTP and copy <code>/var/opt/idauto/rapididentity.war</code> to <code>/var/sftp/files/rapididentity.war</code>.</li>
-    <li>From your workstation, SFTP to the upgraded appliance and download <code>rapididentity.war</code>.</li>
-    <li>On each appliance that needs the upgrade:
-      <ol>
-        <li>Stop the RapidIdentity service.</li>
-        <li>Enable SFTP.</li>
-        <li>Back up the existing WAR file.</li>
-        <li>Upload the new WAR file.</li>
-        <li>Set owner and permissions to match your known good appliance.</li>
-      </ol>
-    </li>
-    <li>Start the RapidIdentity service on all nodes.</li>
-    <li>Watch logs and the portal configuration page to confirm all appliances rejoin the cluster and report the correct version.</li>
+    <li>Snapshot all appliances.</li>
+    <li>Stop RI on all appliances in the cluster (DB appliance stopped last).</li>
+    <li>On an updated appliance, copy <code>/var/opt/idauto/rapididentity.war</code> into the SFTP jail.</li>
+    <li>From your workstation, SFTP that WAR down.</li>
+    <li>For each appliance that needs the upgrade, back up the existing WAR, upload the new one, and set owner and permissions.</li>
+    <li>Start RI again (DB appliance started first).</li>
+    <li>Verify logs and cluster status in the portal.</li>
   </ol>
-</div>
-
-<div class="section">
-  <h2>Step 0: Prerequisites</h2>
-  <ul>
-    <li>Access to the hypervisor or VM platform to create snapshots.</li>
-    <li>SSH access to each appliance as <code>config</code>.</li>
-    <li>Ability to enter tech mode from the config menu.</li>
-    <li>Network path open from your workstation to each appliance on SSH and SFTP.</li>
-  </ul>
 </div>
 
 <div class="section">
   <h2>Step 1: Snapshot all appliances</h2>
   <p>
-  In your hypervisor or VM platform, create a snapshot of each appliance in the cluster (both the upgraded appliances and the ones that failed to upgrade). Use a clear name such as:
-  </p>
-  <pre>Before-manual-war-upgrade-YYYYMMDD</pre>
-  <p>
-  Do not proceed until you have valid snapshots.
+    Take a snapshot of every appliance in the cluster in your hypervisor. If you skip this and something goes wrong, you will not have a quick rollback.
   </p>
 </div>
 
 <div class="section">
-  <h2>Step 2: Prepare an upgraded appliance (source)</h2>
+  <h2>Step 2: Stop RI on all appliances (DB last)</h2>
 
-  <h3>2.1 SSH as config</h3>
-  <pre>ssh config@UPGRADED_APPLIANCE_IP</pre>
-
-  <h3>2.2 Set the SFTP password</h3>
   <p>
-    From the config menu on the appliance:
+    Stop RI on all appliances in the cluster. Application nodes can be stopped in any order. The database appliance must be stopped last, and will be started first later. All appliances depend on the DB being online.
   </p>
+
+  <h3>2.1 Stop from the config menu</h3>
   <ol>
-    <li>Go to <strong>Security</strong>.</li>
-    <li>Select <strong>Change SFTP password</strong>.</li>
-    <li>Set a strong temporary SFTP password for the user <code>sftp</code>.</li>
+    <li>SSH as <code>config</code> to each appliance in the cluster.</li>
+    <li>In the RI CLI menu go to option 1 RapidIdentity.</li>
+    <li>Select option 1 to stop the RI service.</li>
   </ol>
 
-  <h3>2.3 Enter tech mode and copy the WAR file into SFTP directory</h3>
-  <p>
-    From the config menu, enter tech mode, then run:
+  <p class="small">
+    If you are already in tech mode instead of the config menu, you can stop RI with:
   </p>
-  <pre>cp /var/opt/idauto/rapididentity.war /var/sftp/files/rapididentity.war</pre>
+  <pre>service rapididentity stop</pre>
 </div>
 
 <div class="section">
-  <h2>Step 3: Download the WAR file to your workstation</h2>
+  <h2>Step 3: Prepare WAR on an updated appliance</h2>
 
-  <h3>3.1 SFTP to the upgraded appliance</h3>
-  <p>From a terminal on your workstation:</p>
-  <pre>sftp sftp@UPGRADED_APPLIANCE_IP</pre>
+  <p>
+    Pick one appliance that successfully took the update. This will be your source.
+  </p>
+
+  <h3>3.1 Set SFTP password on the source appliance</h3>
+  <ol>
+    <li>SSH as <code>config</code> to the updated appliance.</li>
+    <li>In the menu go to Security.</li>
+    <li>Select Change SFTP password and set a password for user <code>sftp</code>.</li>
+  </ol>
+
+  <h3>3.2 Copy the WAR into the SFTP jail (tech mode)</h3>
+  <ol>
+    <li>From the config menu enter tech mode.</li>
+    <li>Run:</li>
+  </ol>
+  <pre>cp /var/opt/idauto/rapididentity.war /var/sftp/files/rapididentity.war</pre>
+
+  <p class="small">
+    When you log in as <code>sftp</code> you will land in a jailed directory. You can <code>cd files</code> inside that jail. Standard SFTP commands like <code>get</code>, <code>put</code>, <code>ls</code>, and <code>lls</code> work as expected.
+  </p>
+</div>
+
+<div class="section">
+  <h2>Step 4: Download WAR to your workstation</h2>
+
+  <h3>4.1 SFTP to the updated appliance</h3>
+  <p>From your workstation terminal:</p>
+  <pre>sftp sftp@UPDATED_APPLIANCE_IP</pre>
 
   <p>In the SFTP session:</p>
   <pre>
 cd files
+ls
 get rapididentity.war
 bye
   </pre>
 
   <p>
-    You should now have <code>rapididentity.war</code> in your local working directory (for example, on your workstation desktop or a working folder).
+    You now have <code>rapididentity.war</code> locally on your workstation.
   </p>
 </div>
 
 <div class="section">
-  <h2>Step 4: Prepare each appliance that needs the upgrade</h2>
+  <h2>Step 5: Replace WAR on each appliance that needs the upgrade</h2>
+
   <p>
-    Repeat this entire step for every appliance that failed the upgrade.
+    Repeat this entire step for every appliance that needs the updated WAR.
   </p>
 
-  <h3>4.1 Stop the RapidIdentity service</h3>
-  <p>
-    SSH to the appliance as <code>config</code>, then use the appropriate command for your environment. Two common examples are:
-  </p>
-  <pre>
-systemctl stop rapididentity
-  </pre>
-  <p class="small">
-    or
-  </p>
-  <pre>
-service rapididentity stop
-  </pre>
-  <p class="small">
-    Replace <code>rapididentity</code> with the actual service name used on your appliance if it is different.
-  </p>
-
-  <h3>4.2 Set the SFTP password on the target appliance</h3>
+  <h3>5.1 Set SFTP password on the target appliance</h3>
   <ol>
-    <li>From the config menu, go to <strong>Security</strong>.</li>
-    <li>Select <strong>Change SFTP password</strong>.</li>
-    <li>Set a strong temporary password for <code>sftp</code>.</li>
+    <li>SSH as <code>config</code> to the target appliance.</li>
+    <li>In the menu go to Security.</li>
+    <li>Select Change SFTP password and set a password for <code>sftp</code>.</li>
   </ol>
 
-  <h3>4.3 Enter tech mode and back up the existing WAR file</h3>
-  <p>From tech mode on the appliance:</p>
+  <h3>5.2 Back up the existing WAR (tech mode)</h3>
+  <ol>
+    <li>From the config menu enter tech mode.</li>
+    <li>Run:</li>
+  </ol>
   <pre>
 cd /var/opt/idauto
 mv rapididentity.war.last rapididentity.war.old
 mv rapididentity.war rapididentity.war.last
   </pre>
-  <p>
-    After this:
-  </p>
-  <ul>
-    <li><code>rapididentity.war.old</code> is your oldest backup.</li>
-    <li><code>rapididentity.war.last</code> is your previous active version.</li>
-  </ul>
-</div>
 
-<div class="section">
-  <h2>Step 5: Upload the new WAR file to the target appliance</h2>
+  <h3>5.3 Upload the new WAR</h3>
 
-  <h3>5.1 SFTP from your workstation to the target appliance</h3>
-  <p>From your workstation terminal (in the directory where you downloaded <code>rapididentity.war</code>):</p>
+  <p>From your workstation terminal (where the new <code>rapididentity.war</code> is stored):</p>
   <pre>sftp sftp@TARGET_APPLIANCE_IP</pre>
 
   <p>In the SFTP session:</p>
   <pre>
 cd files
 put rapididentity.war
+ls
 bye
   </pre>
 
-  <h3>5.2 Move the uploaded file into place on the appliance</h3>
   <p>Back in the tech mode shell on the target appliance:</p>
   <pre>
 cd /var/opt/idauto
 mv /var/sftp/files/rapididentity.war /var/opt/idauto/rapididentity.war
   </pre>
 
-  <h3>5.3 Set ownership and permissions</h3>
-  <p>
-    In your lab, the permissions look like this:
-  </p>
+  <h3>5.4 Set owner and permissions</h3>
+
+  <p>Owner and permissions should be:</p>
+  <pre>-r-xr-x--- 1 idauto idauto ... rapididentity.war</pre>
+
+  <p>To enforce that on the target appliance:</p>
   <pre>
-[root@localhost idauto]# ls -l rapididentity.war
--r-xr-x---. 1 idauto idauto 193031513 Oct 29 14:40 rapididentity.war
+chown idauto:idauto /var/opt/idauto/rapididentity.war
+chmod 550 /var/opt/idauto/rapididentity.war
+ls -l /var/opt/idauto/rapididentity.war
   </pre>
 
   <p>
-    To match that on the target appliance:
-  </p>
-  <pre>
-cd /var/opt/idauto
-chown idauto:idauto rapididentity.war
-chmod 550 rapididentity.war
-ls -l rapididentity.war
-  </pre>
-
-  <p>
-    Confirm the owner, group, and permissions match your known good appliance. If your production permissions differ from the lab example, adjust to match production.
-  </p>
-
-  <p>
-    Repeat Step 4 and Step 5 for every appliance that needs the upgrade.
+    Verify that the owner is <code>idauto</code>, group is <code>idauto</code>, and the permissions are <code>-r-xr-x---</code>.
   </p>
 </div>
 
 <div class="section">
-  <h2>Step 6: Start services and verify the cluster</h2>
+  <h2>Step 6: Start RI on all appliances (DB first)</h2>
 
-  <h3>6.1 Start the RapidIdentity service on all appliances</h3>
-  <p>On each appliance, from config or tech mode run the appropriate command, such as:</p>
-  <pre>
-systemctl start rapididentity
-  </pre>
-  <p class="small">
-    or
-  </p>
-  <pre>
-service rapididentity start
-  </pre>
-
-  <h3>6.2 Watch logs for cluster join and license messages</h3>
   <p>
-    On each appliance, tail the application log and watch for messages indicating the node is joining the cluster and any license related messages. Example:
-  </p>
-  <pre>
-tail -f /var/log/idauto/rapididentity.log
-  </pre>
-  <p class="small">
-    Adjust the log path to match your environment.
+    Start RI again on all appliances. The database appliance must be started first, then the remaining appliances in any order.
   </p>
 
-  <h3>6.3 Verify in the portal</h3>
+  <h3>6.1 Start from the config menu</h3>
   <ol>
-    <li>Log in to the RapidIdentity portal.</li>
-    <li>Go to <strong>Configuration</strong> and confirm that all appliances show as part of the cluster.</li>
-    <li>Verify that the version on the previously failing appliances matches the version on the appliances that took the update originally.</li>
+    <li>SSH as <code>config</code> to each appliance.</li>
+    <li>In the RI CLI menu go to option 1 RapidIdentity.</li>
+    <li>Select option 1 to start the RI service.</li>
+  </ol>
+
+  <p class="small">
+    If you are in tech mode instead of the menu, you can start RI with:
+  </p>
+  <pre>service rapididentity start</pre>
+</div>
+
+<div class="section">
+  <h2>Step 7: Verify logs and cluster status</h2>
+
+  <h3>7.1 Check logs from the menu</h3>
+  <p>
+    On each appliance, from the config menu, go to the logs menu and open the RI application log. The menu uses <code>less</code>, so you can search and scroll.
+  </p>
+  <p>
+    Confirm that each appliance starts cleanly, connects to the database, and joins the cluster. Cluster join messages are typically near the license messages.
+  </p>
+
+  <h3>7.2 Check in the portal</h3>
+  <ol>
+    <li>Log in to the RI portal.</li>
+    <li>Go to Configuration and review the appliance or cluster view.</li>
+    <li>Confirm that all appliances show in the cluster and report the correct version that matches the already updated on prem appliances.</li>
   </ol>
 </div>
 
 <div class="form-section">
   <h2>Optional: Generate SSH and SFTP commands</h2>
   <p class="small">
-    Enter the IP addresses for up to three upgraded appliances and three appliances that need the upgrade. Then click "Generate commands" to get a set of SSH and SFTP commands you can copy.
+    Enter IPs for up to three updated appliances (sources) and three appliances that need the upgrade (targets). Click Generate to get basic SSH and SFTP commands you can copy.
   </p>
 
-  <h3>Upgraded appliances (source)</h3>
+  <h3>Updated appliances (source)</h3>
   <label for="src1">Source appliance 1 IP</label>
   <input type="text" id="src1" placeholder="e.g. 192.168.254.10">
 
@@ -337,7 +300,7 @@ tail -f /var/log/idauto/rapididentity.log
   <textarea id="commandOutput" placeholder="Generated commands will appear here..."></textarea>
 
   <p class="small">
-    Note: These commands assume SSH username <code>config</code> and SFTP username <code>sftp</code>. Adjust usernames if your environment is different.
+    These use SSH user <code>config</code> and SFTP user <code>sftp</code>. Adjust if your environment uses different usernames.
   </p>
 </div>
 
@@ -355,7 +318,7 @@ tail -f /var/log/idauto/rapididentity.log
     ];
 
     var lines = [];
-    lines.push("=== Upgraded appliances (source) ===");
+    lines.push("=== Updated appliances (source) ===");
     for (var i = 0; i < srcIps.length; i++) {
       if (!srcIps[i]) continue;
       lines.push("");
@@ -384,7 +347,9 @@ tail -f /var/log/idauto/rapididentity.log
     try {
       document.execCommand("copy");
     } catch (e) {
-      navigator.clipboard.writeText(textArea.value);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(textArea.value);
+      }
     }
   }
 </script>
